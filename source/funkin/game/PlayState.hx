@@ -1048,7 +1048,13 @@ class PlayState extends MusicBeatState
 				executeEvent(e);
 				break;
 			}
+		];
+
+		if (!foundSigs) {
+			camZoomingInterval = 4;
+			camZoomingEvery = BEAT;
 		}
+
 		events.sort(function(p1, p2) {
 			return FlxSort.byValues(FlxSort.DESCENDING, p1.time, p2.time);
 		});
@@ -1296,6 +1302,15 @@ class PlayState extends MusicBeatState
 		if (canAccessDebugMenus && chartingMode && controls.DEV_ACCESS)
 			FlxG.switchState(new funkin.editors.charter.Charter(SONG.meta.name, difficulty, false));
 
+		if (Options.camZoomOnBeat && camZooming && FlxG.camera.zoom < maxCamZoom) {
+			var beat = Conductor.getBeats(camZoomingEvery, camZoomingInterval, camZoomingOffset);
+			if (camZoomingLastBeat != beat) {
+				camZoomingLastBeat = beat;
+				FlxG.camera.zoom += 0.015 * camZoomingStrength;
+				camHUD.zoom += 0.03 * camZoomingStrength;
+			}
+		}
+
 		if (doIconBop)
 			for (icon in iconArray)
 				if (icon.updateBump != null)
@@ -1514,6 +1529,12 @@ class PlayState extends MusicBeatState
 			case "Camera Modulo Change":
 				camZoomingInterval = event.params[0];
 				camZoomingStrength = event.params[1];
+				if (event.params[2] != null) camZoomingEvery = switch (event.params[2].toUpperCase()) {
+					case "STEP": STEP;
+					case "MEASURE": MEASURE;
+					default: BEAT;
+				}
+				if (event.params[3] != null) camZoomingOffset = event.params[3];
 			case "Camera Flash":
 				var camera:FlxCamera = event.params[3] == "camHUD" ? camHUD : camGame;
 
