@@ -22,6 +22,8 @@ class UIWarningSubstate extends MusicBeatSubstate {
 		_;
 	};
 
+	public var bHeight:Int = 232;
+
 	var title:String;
 	var message:String;
 	var buttons:Array<WarningButton>;
@@ -70,14 +72,14 @@ class UIWarningSubstate extends MusicBeatSubstate {
 		FlxG.cameras.add(warnCam, false);
 
 
-		var spr = new UISliceSprite(0, 0, CoolUtil.maxInt(560, 30 + (170 * buttons.length)), 232, 'editors/ui/${isError ? "normal" : "grayscale"}-popup');
+		var spr = new UISliceSprite(0, 0, CoolUtil.maxInt(560, 30 + (170 * buttons.length)), bHeight, 'editors/ui/${isError ? "normal" : "grayscale"}-popup');
 
 		var sprIcon:FlxSprite = new FlxSprite(spr.x + 18, spr.y + 28 + 26).loadGraphic(Paths.image('editors/warnings/${isError ? "error" : "warning"}'));
 		sprIcon.scale.set(1.4, 1.4);
 		sprIcon.updateHitbox();
 
 		messageSpr = new UIText(0,0, spr.bWidth - 100 - (26 * 2), message);
-		spr.bHeight = Std.int(232 + Math.abs(Math.min(sprIcon.height-messageSpr.height, 0)));
+		spr.bHeight = Std.int(bHeight + Math.abs(Math.min(sprIcon.height-messageSpr.height, 0)));
 
 		spr.x = (FlxG.width - spr.bWidth) / 2;
 		spr.y = (FlxG.height - spr.bHeight) / 2;
