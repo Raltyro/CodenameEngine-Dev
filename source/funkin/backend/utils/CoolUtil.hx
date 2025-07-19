@@ -464,7 +464,7 @@ final class CoolUtil
 				stepsPerBeat = Math.isNaN(timeSignParsed[1]) ? Flags.DEFAULT_STEPS_PER_BEAT : (16 / timeSignParsed[1]); // from denominator
 			}
 
-			var bpm:Null<Float> = Std.parseFloat(musicData["BPM"]).getDefault(DefaultBPM);
+			var bpm:Float = Std.parseFloat(musicData["BPM"]).getDefault(DefaultBPM);
 			Conductor.changeBPM(bpm, beatsPerMeasure, floorInt(stepsPerBeat));
 		} else
 			Conductor.changeBPM(DefaultBPM);
