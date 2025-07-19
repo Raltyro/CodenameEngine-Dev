@@ -42,6 +42,9 @@ class Options
 	public static var gpuOnlyBitmaps:Bool = #if (mac || web) false #else true #end; // causes issues on mac and web
 	public static var streamedMusic:Bool = true;
 	public static var streamedVocals:Bool = true;
+	#if MODCHARTING_FEATURES
+	public static var modchartingHoldSubdivisions:Int = 4;
+	#end
 
 	public static var lastLoadedMod:String = null;
 
@@ -51,6 +54,7 @@ class Options
 	public static var intensiveBlur:Bool = true;
 	public static var editorSFX:Bool = true;
 	public static var editorPrettyPrint:Bool = false;
+	public static var editorsResizable:Bool = true;
 	public static var maxUndos:Int = 120;
 
 	/**
@@ -69,6 +73,7 @@ class Options
 	public static var charterShowSections:Bool = true;
 	public static var charterShowBeats:Bool = true;
 	public static var charterEnablePlaytestScripts:Bool = true;
+	public static var charterRainbowWaveforms:Bool = false;
 	public static var charterLowDetailWaveforms:Bool = false;
 	public static var charterAutoSaves:Bool = true;
 	public static var charterAutoSaveTime:Float = 60*5;
@@ -76,10 +81,18 @@ class Options
 	public static var charterAutoSavesSeparateFolder:Bool = false;
 
 	/**
-	* PLAYER 1 CONTROLS
-	*/
+	 * CHARACTER EDITOR
+	 */
+	public static var stageSelected:String = null;
+	public static var characterHitbox:Bool = true;
+	public static var characterCamera:Bool = true;
+	public static var characterAxis:Bool = true;
+	public static var characterDragging:Bool = true;
+	public static var playAnimOnOffset:Bool = false;
 
-	// Notes
+	/**
+	 * PLAYER 1 CONTROLS
+	 */
 	public static var P1_NOTE_LEFT:Array<FlxKey> = [A];
 	public static var P1_NOTE_DOWN:Array<FlxKey> = [S];
 	public static var P1_NOTE_UP:Array<FlxKey> = [W];

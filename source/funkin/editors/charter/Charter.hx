@@ -1,22 +1,28 @@
 package funkin.editors.charter;
 // ! FUCK YOU CHUF (your biggest fan -lunar) <3
 
+// import flixel.FlxLayer;
 import flixel.input.keyboard.FlxKey;
 import flixel.math.FlxPoint;
 import flixel.sound.FlxSound;
+import flixel.util.FlxSort;
 import funkin.backend.chart.*;
 import funkin.backend.chart.ChartData;
 import funkin.backend.system.Conductor;
 import funkin.backend.system.framerate.Framerate;
-import funkin.editors.charter.CharterBackdropGroup.CharterBackdropDummy;
-import funkin.editors.charter.CharterBackdropGroup.CharterGridSeperatorBase;
 import funkin.editors.charter.CharterBackdropGroup.EventBackdrop;
+import funkin.editors.charter.CharterBackdropGroup.CharterGridSeperatorBase;
+import funkin.editors.charter.CharterEvent;
 import funkin.editors.charter.CharterStrumline;
+import funkin.editors.extra.CameraHoverDummy;
 import funkin.editors.ui.UIContextMenu.UIContextMenuOption;
 import funkin.editors.ui.UIContextMenu.UIContextMenuOptionSpr;
 import funkin.editors.ui.UIState;
 import funkin.editors.ui.UITopMenu.UITopMenuButton;
 import haxe.Json;
+#if sys
+import sys.FileSystem;
+#end
 
 class Charter extends UIState {
 	public static var __song:String;
@@ -43,15 +49,19 @@ class Charter extends UIState {
 	public var scrollBar:UIScrollBar;
 	public var songPosInfo:UIText;
 
+	public var shouldScroll:Bool = true;
+
 	public var quantButtons:Array<CharterQuantButton> = [];
 	public var playBackSlider:UISlider;
 
 	public var topMenuSpr:UITopMenu;
 	public var gridBackdrops:CharterBackdropGroup;
-	public var eventsBackdrop:EventBackdrop;
-	public var addEventSpr:CharterEventAdd;
+	public var leftEventsBackdrop:EventBackdrop;
+	public var localAddEventSpr:CharterEventAdd;
+	public var rightEventsBackdrop:EventBackdrop;
+	public var globalAddEventSpr:CharterEventAdd;
 
-	public var gridBackdropDummy:CharterBackdropDummy;
+	public var gridBackdropDummy:CameraHoverDummy;
 	public var noteHoverer:CharterNoteHoverer;
 	public var noteDeleteAnims:CharterDeleteAnim;
 
@@ -73,7 +83,11 @@ class Charter extends UIState {
 
 	public var strumLines:CharterStrumLineGroup = new CharterStrumLineGroup();
 	public var notesGroup:CharterNoteGroup = new CharterNoteGroup();
-	public var eventsGroup:CharterEventGroup = new CharterEventGroup();
+
+	public var leftEventRowText:UIText;
+	public var rightEventRowText:UIText;
+	public var leftEventsGroup:CharterEventGroup = new CharterEventGroup();
+	public var rightEventsGroup:CharterEventGroup = new CharterEventGroup();
 
 	public var charterCamera:FlxCamera;
 	public var uiCamera:FlxCamera;
@@ -89,6 +103,8 @@ class Charter extends UIState {
 	public static var clipboard:Array<CharterCopyboardObject> = [];
 	public static var waveformHandler:CharterWaveformHandler;
 
+	//public var textLayer:FlxLayer;
+
 	public function new(song:String, diff:String, reload:Bool = true) {
 		super();
 		if (song != null) {
@@ -103,65 +119,67 @@ class Charter extends UIState {
 
 		WindowUtils.suffix = " (Chart Editor)";
 		SaveWarning.selectionClass = CharterSelection;
-		SaveWarning.saveFunc = () -> {_file_save(null);};
+		SaveWarning.saveFunc = () -> saveEverything();
 
 		topMenu = [
 			{
 				label: "File",
 				childs: [
-					{
+					/*{
 						label: "New"
 					},
-					null,
+					null,*/
 					{
 						label: "Save",
 						keybind: [CONTROL, S],
+						onSelect: _file_save_all,
+					},
+					null,
+					{
+						label: "Save chart",
+						keybind: [CONTROL, SHIFT, S],
 						onSelect: _file_save,
 					},
 					{
-						label: "Save As...",
-						keybind: [CONTROL, SHIFT, S],
+						label: "Save chart as...",
 						onSelect: _file_saveas,
 					},
 					null,
 					{
-						label: "Save Without Events",
-						keybind: [CONTROL, ALT, TAB, S],
-						onSelect: _file_save_no_events,
-					},
-					{
-						label: "Save Without Events As...",
-						keybind: [CONTROL, SHIFT, ALT, TAB, S],
-						onSelect: _file_saveas_no_events,
-					},
-					{
-						label: "Save Events Separately",
-						keybind: [CONTROL, TAB, S],
+						label: "Save global events",
+						keybind: [CONTROL, B, S],
 						onSelect: _file_events_save,
 					},
 					{
-						label: "Save Events Separately As...",
-						keybind: [CONTROL, SHIFT, TAB, S],
+						label: "Save global events as...",
 						onSelect: _file_events_saveas,
+					},
+					{
+						label: "Save chart without local events",
+						keybind: [CONTROL, ALT, S],
+						onSelect: _file_save_no_events,
+					},
+					{
+						label: "Save chart without local events as...",
+						onSelect: _file_saveas_no_events,
 					},
 					null,
 					{
-						label: "Save Meta",
-						keybind: [CONTROL, ALT, S],
+						label: "Save meta",
+						keybind: [CONTROL, M, S],
 						onSelect: _file_meta_save,
 					},
 					{
-						label: "Save Meta As...",
-						keybind: [CONTROL, ALT ,SHIFT, S],
+						label: "Save meta as...",
 						onSelect: _file_meta_saveas,
 					},
 					null,
 					{
-						label: "Export For FNF Legacy...",
+						label: "Export for FNF Legacy as...",
 						onSelect: _file_saveas_fnflegacy,
 					},
 					{
-						label: "Export For Psych Engine...",
+						label: "Export for Psych Engine as...",
 						onSelect: _file_saveas_psych,
 					},
 					null,
@@ -284,9 +302,30 @@ class Charter extends UIState {
 					},
 					null,
 					{
+						label: 'Rainbow Waveforms',
+						onSelect: _view_switchWaveformRainbow,
+						icon: Options.charterRainbowWaveforms ? 1 : 0
+					},
+					{
 						label: 'Low Detail Waveforms',
 						onSelect: _view_switchWaveformDetail,
 						icon: Options.charterLowDetailWaveforms ? 1 : 0
+					},
+					null,
+					{
+						label: "Scroll left",
+						keybind: [SHIFT, LEFT],
+						onSelect: _view_scrollleft
+					},
+					{
+						label: "Scroll right",
+						keybind: [SHIFT, RIGHT],
+						onSelect: _view_scrollright
+					},
+					{
+						label: "Reset scroll",
+						keybind: [SHIFT, DOWN],
+						onSelect: _view_scrollreset
 					}
 				]
 			},
@@ -378,9 +417,9 @@ class Charter extends UIState {
 						onSelect: _playback_metronome,
 						icon: Options.charterMetronomeEnabled ? 1 : 0
 					},
-					{
+					/*{
 						label: "Visual metronome"
-					},
+					},*/
 				]
 			}
 		];
@@ -405,12 +444,30 @@ class Charter extends UIState {
 		gridBackdrops = new CharterBackdropGroup(strumLines);
 		gridBackdrops.notesGroup = this.notesGroup;
 
-		eventsBackdrop = new EventBackdrop();
-		eventsBackdrop.x = -eventsBackdrop.width;
-		eventsBackdrop.cameras = [charterCamera];
-		eventsGroup.eventsBackdrop = eventsBackdrop;
+		leftEventRowText = new UIText(0, -40, 0, "Local Events\n(Only This Difficulty)", 12);
+		leftEventRowText.alignment = "center"; leftEventRowText.alpha = 0.75;
 
-		add(gridBackdropDummy = new CharterBackdropDummy(gridBackdrops));
+		leftEventsBackdrop = new EventBackdrop(false);
+		leftEventsBackdrop.x = -leftEventsBackdrop.width;
+
+		leftEventRowText.cameras = leftEventsBackdrop.cameras = leftEventsGroup.cameras = [charterCamera];
+		leftEventsGroup.eventsBackdrop = leftEventsBackdrop;
+		leftEventsGroup.eventsRowText = leftEventRowText;
+
+		rightEventRowText = new UIText(0, -40, 0, "Global Events\n(All Difficulties)", 12);
+		rightEventRowText.alignment = "center"; rightEventRowText.alpha = 0.75;
+
+		rightEventsBackdrop = new EventBackdrop(true);
+		rightEventsBackdrop.x = 0;
+
+		rightEventRowText.cameras = rightEventsBackdrop.cameras = rightEventsGroup.cameras = [charterCamera];
+		rightEventsGroup.eventsBackdrop = rightEventsBackdrop;
+		rightEventsGroup.eventsRowText = rightEventRowText;
+
+		// thank you neo for pointing out im stupid -lunar
+		// this is future lunar i completely forgot what neo pointed out but hes awesome go follow him on twitter 
+
+		add(gridBackdropDummy = new CameraHoverDummy(gridBackdrops, FlxPoint.weak(1, 0)));
 		selectionBox = new UISliceSprite(0, 0, 2, 2, 'editors/ui/selection');
 		selectionBox.visible = false;
 		selectionBox.scrollFactor.set(1, 1);
@@ -419,7 +476,7 @@ class Charter extends UIState {
 		noteHoverer = new CharterNoteHoverer();
 		noteDeleteAnims = new CharterDeleteAnim();
 
-		selectionBox.cameras = notesGroup.cameras = gridBackdrops.cameras = 
+		selectionBox.cameras = notesGroup.cameras = gridBackdrops.cameras =
 		noteHoverer.cameras = noteDeleteAnims.cameras = [charterCamera];
 
 		topMenuSpr = new UITopMenu(topMenu);
@@ -436,7 +493,7 @@ class Charter extends UIState {
 		};
 		uiGroup.add(scrollBar);
 
-		songPosInfo = new UIText(FlxG.width - 30 - 400, scrollBar.y + 10, 400, "00:00\nBeat: 0\nStep: 0\nMeasure: 0\nBPM: 0\nTime Signature: 4/4");
+		songPosInfo = new UIText(FlxG.width - 30 - 400, scrollBar.y + 10, 400, "00:00 / 00:00\nBeat: 0\nStep: 0\nMeasure: 0\nBPM: 0\nTime Signature: 4/4");
 		songPosInfo.alignment = RIGHT;
 		uiGroup.add(songPosInfo);
 
@@ -480,16 +537,29 @@ class Charter extends UIState {
 		strumlineInfoBG.cameras = [charterCamera];
 		strumLines.cameras = [charterCamera];
 
-		addEventSpr = new CharterEventAdd();
-		addEventSpr.x -= addEventSpr.bWidth;
-		addEventSpr.cameras = [charterCamera];
-		addEventSpr.alpha = 0;
+		localAddEventSpr = new CharterEventAdd(false);
+		localAddEventSpr.x -= localAddEventSpr.bWidth;
+		localAddEventSpr.cameras = [charterCamera];
+		localAddEventSpr.alpha = 0;
+
+		globalAddEventSpr = new CharterEventAdd(true);
+		globalAddEventSpr.x = 0;
+		globalAddEventSpr.cameras = [charterCamera];
+		globalAddEventSpr.alpha = 0;
 
 		// adds grid and notes so that they're ALWAYS behind the UI
 		add(gridBackdrops);
-		add(eventsBackdrop);
-		add(addEventSpr);
-		add(eventsGroup);
+		add(leftEventsBackdrop);
+		add(rightEventsBackdrop);
+		add(localAddEventSpr);
+		add(globalAddEventSpr);
+		add(leftEventsGroup);
+		add(rightEventsGroup);
+		add(leftEventRowText);
+		add(localAddEventSpr.sideText);
+		add(rightEventRowText);
+		add(globalAddEventSpr.sideText);
+
 		add(noteHoverer);
 		add(noteDeleteAnims);
 		add(notesGroup);
@@ -506,12 +576,14 @@ class Charter extends UIState {
 
 		loadSong();
 
-		if(Framerate.isLoaded) {
+		if (Framerate.isLoaded) {
 			Framerate.fpsCounter.alpha = 0.4;
 			Framerate.memoryCounter.alpha = 0.4;
 			Framerate.codenameBuildField.alpha = 0.4;
 		}
-		updateDisplaySprites();
+
+		if (Options.editorsResizable)
+			UIState.setResolutionAware();
 
 		// ! IF YOU EVER WANNA VIEW IN THE FUTURE, JUST USE A FLXSPRITE :D -lunar
 		/*var dataDisplay:FlxSprite = new FlxSprite().loadGraphic(waveformHandler.waveDatas.get("Voices.ogg"));
@@ -575,25 +647,25 @@ class Charter extends UIState {
 		notesGroup.autoSort = true;
 
 		// create events
-		eventsGroup.autoSort = false;
+		rightEventsGroup.autoSort = leftEventsGroup.autoSort = false;
 		var __last:CharterEvent = null;
 		var __lastTime:Float = Math.NaN;
-		for(e in PlayState.SONG.events) {
+		for (e in PlayState.SONG.events) {
 			if (e == null) continue;
 			if (__last != null && __lastTime == e.time) {
 				__last.events.push(e);
 			} else {
 				__last = new CharterEvent(Conductor.getStepForTime(e.time), [e]);
 				__lastTime = e.time;
-				eventsGroup.add(__last);
+				(__last.global ? rightEventsGroup : leftEventsGroup).add(__last);
 			}
 		}
 
-		eventsGroup.sortEvents();
-		eventsGroup.autoSort = true;
-
-		for(e in eventsGroup.members)
-			e.refreshEventIcons();
+		for (grp in [leftEventsGroup, rightEventsGroup]) {
+			grp.sortEvents();
+			grp.autoSort = true;
+			for (e in grp.members) e.refreshEventIcons();
+		}
 
 		buildNoteTypesUI();
 		refreshBPMSensitive();
@@ -612,14 +684,14 @@ class Charter extends UIState {
 		scrollBar.length = __endStep = Conductor.getStepForTime(length);
 
 		gridBackdrops.bottomLimitY = __endStep * 40;
-		eventsBackdrop.bottomSeparator.y = gridBackdrops.bottomLimitY-2;
+		leftEventsBackdrop.bottomSeparator.y = rightEventsBackdrop.bottomSeparator.y = gridBackdrops.bottomLimitY-2;
 
 		CharterGridSeperatorBase.lastConductorSprY = Math.NEGATIVE_INFINITY;
 
 		updateWaveforms();
 	}
 
-	public function updateWaveforms() {
+	public function getWavesToGenerate():Array<{name:String, sound:FlxSound}> {
 		var wavesToGenerate:Array<{name:String, sound:FlxSound}> = [];
 
 		if (FlxG.sound.music.loaded)
@@ -634,6 +706,12 @@ class Charter extends UIState {
 					name: 'Voices${strumLine.strumLine.vocalsSuffix}.ogg',
 					sound: strumLine.vocals
 				});
+
+		return wavesToGenerate;
+	}
+
+	public function updateWaveforms() {
+		var wavesToGenerate:Array<{name:String, sound:FlxSound}> = getWavesToGenerate();
 
 		var oldWaveformList:Array<String> = waveformHandler.waveformList;
 		var newWaveformList:Array<String> = [for (data in wavesToGenerate) data.name];
@@ -691,7 +769,7 @@ class Charter extends UIState {
 			else selection = [s];
 		}
 
-		for (group in [notesGroup, eventsGroup]) {
+		for (group in [notesGroup, leftEventsGroup, rightEventsGroup]) {
 			var group:FlxTypedGroup<Dynamic> = cast group;
 			group.forEach(function(s) {
 				s.selected = false;
@@ -715,21 +793,21 @@ class Charter extends UIState {
 		if (autoSaveTimer < Options.charterAutoSaveWarningTime && !autoSaveNotif.cancelled && !autoSaveNotif.showedAnimation) {
 			if (Options.charterAutoSavesSeparateFolder)
 				__autoSaveLocation = __diff.toLowerCase() + DateTools.format(Date.now(), "%m-%d_%H-%M");
-			autoSaveNotif.startAutoSave(autoSaveTimer, 
-				!Options.charterAutoSavesSeparateFolder ? 'Saved chart at ${__diff.toLowerCase()}.json!' : 
+			autoSaveNotif.startAutoSave(autoSaveTimer,
+				!Options.charterAutoSavesSeparateFolder ? 'Saved chart at ${__diff.toLowerCase()}.json!' :
 				'Saved chart at $__autoSaveLocation.json!'
 			);
 		}
 		if (autoSaveTimer <= 0) {
 			autoSaveTimer = Options.charterAutoSaveTime;
 			if (!autoSaveNotif.cancelled) {
-				buildChart(); 
+				buildChart();
 				var songPath:String = '${Paths.getAssetsRoot()}/songs/${__song.toLowerCase()}';
-	
+
 				if (Options.charterAutoSavesSeparateFolder)
-					Chart.save(songPath, PlayState.SONG, __autoSaveLocation, {saveMetaInChart: false, folder: "autosaves", prettyPrint: Options.editorPrettyPrint});
-				else 
-					Chart.save(songPath, PlayState.SONG, __diff.toLowerCase(), {saveMetaInChart: false, prettyPrint: Options.editorPrettyPrint});
+					Chart.save(songPath, PlayState.SONG, __autoSaveLocation, {saveMetaInChart: true, saveLocalEvents: true, saveGlobalEvents: true, folder: "autosaves", prettyPrint: Options.editorPrettyPrint});
+				else  // These two chart saves are particular, to avoid any kind of loss, stuff like meta, global and local events will be save all together  - Nex
+					Chart.save(songPath, PlayState.SONG, __diff.toLowerCase(), {saveMetaInChart: true, saveLocalEvents: true, saveGlobalEvents: true, prettyPrint: Options.editorPrettyPrint});
 				undos.save();
 			}
 			autoSaveNotif.cancelled = false;
@@ -743,7 +821,7 @@ class Charter extends UIState {
 		/**
 		 * NOTE DRAG HANDLING
 		 */
-		mousePos = FlxG.mouse.getWorldPosition(charterCamera);
+		FlxG.mouse.getWorldPosition(charterCamera, mousePos);
 		if (!gridBackdropDummy.hoveredByChild && !FlxG.mouse.pressed)
 			gridActionType = NONE;
 		selectionBox.visible = false;
@@ -759,14 +837,14 @@ class Charter extends UIState {
 						if (FlxG.mouse.justReleased) isSelecting = false;
 					} else {
 						if (FlxG.keys.pressed.SHIFT) {
-							for (group in [notesGroup, eventsGroup]) {
+							for (group in [notesGroup, leftEventsGroup, rightEventsGroup]) {
 								var group:FlxTypedGroup<Dynamic> = cast group;
 								for(n in group)
 									if (n.handleSelection(selectionBox) && selection.contains(n))
 										selection.remove(n);
 							}
 						} else if (FlxG.keys.pressed.CONTROL) {
-							for (group in [notesGroup, eventsGroup]) {
+							for (group in [notesGroup, leftEventsGroup, rightEventsGroup]) {
 								var group:FlxTypedGroup<Dynamic> = cast group;
 								for(n in group)
 									if (n.handleSelection(selectionBox) && !selection.contains(n))
@@ -774,7 +852,7 @@ class Charter extends UIState {
 							}
 						} else {
 							selection = [];
-							for (group in [notesGroup, eventsGroup]) {
+							for (group in [notesGroup, leftEventsGroup, rightEventsGroup]) {
 								var group:FlxTypedGroup<Dynamic> = cast group;
 								for(n in group)
 									if (n.handleSelection(selectionBox))
@@ -795,15 +873,18 @@ class Charter extends UIState {
 				if (selectionDragging) {
 					gridBackdrops.draggingObj = null;
 					selection.loop(function (n:CharterNote) {
-						n.snappedToStrumline = false;
+						n.snappedToGrid = false;
 						n.setPosition(n.fullID * 40 + (mousePos.x - dragStartPos.x), n.step * 40 + (mousePos.y - dragStartPos.y));
-						n.y = FlxMath.bound(n.y, 0, (__endStep*40) - n.height);
-						n.x = FlxMath.bound(n.x, 0, ((strumLines.members.length * 4)-1) * 40);
+						n.y = CoolUtil.bound(n.y, 0, (__endStep*40) - n.height);
+						n.x = CoolUtil.bound(n.x, 0, (strumLines.totalKeyCount-1) * 40);
 						n.cursor = HAND;
 					}, function (e:CharterEvent) {
-						e.y =  e.step * 40 + (mousePos.y - dragStartPos.y) - 17;
-						e.y = FlxMath.bound(e.y, -17, (__endStep*40)-17);
+						e.snappedToGrid = false;
+						e.setPosition(e.eventsBackdrop.x + (e.global ? 0 : e.eventsBackdrop.width - e.bWidth) + (mousePos.x - dragStartPos.x), e.step * 40 + (mousePos.y - dragStartPos.y) - 17);
+						e.y = CoolUtil.bound(e.y, -17, (__endStep*40)-17);
 						e.cursor = HAND;
+
+						e.displayGlobal = e.x + (e.bWidth/2) > ((strumLines.totalKeyCount*40)/2);
 					});
 					currentCursor = HAND;
 				} else {
@@ -827,7 +908,7 @@ class Charter extends UIState {
 							if (s is CharterNote) {
 								var note:CharterNote = cast s;
 								if (note.fullID + changePoint.y < 0) boundedChange.y += Math.abs(note.fullID + changePoint.y);
-								if (note.fullID + changePoint.y > (strumLines.members.length*4)-1) boundedChange.y -= (note.fullID + changePoint.y) - ((strumLines.members.length*4)-1);
+								if (note.fullID + changePoint.y > strumLines.totalKeyCount-1) boundedChange.y -= (note.fullID + changePoint.y) - (strumLines.totalKeyCount-1);
 							}
 
 							s.handleDrag(boundedChange);
@@ -835,19 +916,20 @@ class Charter extends UIState {
 							changePoint.put();
 						}
 
-						if (s is CharterNote) {
-							var s:CharterNote = cast s;
-							s.snappedToStrumline = true;
-						}
+						s.snappedToGrid = true;
 						if (s is UISprite) {
 							var s:UISprite = cast s;
-							s.cursor = BUTTON;
+							s.cursor = CLICK;
 						}
 					}
 					checkSelectionForBPMUpdates();
 					if (!(verticalChange == 0 && horizontalChange == 0)) {
-						notesGroup.sortNotes(); eventsGroup.sortEvents();
-						undos.addToUndo(CSelectionDrag(undoDrags));
+						notesGroup.sortNotes();
+
+						undos.addToUndo(CChangeBundle([
+							CSelectionDrag(undoDrags),
+							updateEventsGroups(selection)
+						]));
 					}
 
 					gridActionType = NONE;
@@ -869,7 +951,7 @@ class Charter extends UIState {
 					}
 
 					var id = Math.floor(mousePos.x / 40);
-					var mouseOnGrid = id >= 0 && id < 4 * gridBackdrops.strumlinesAmount && mousePos.y >= 0;
+					var mouseOnGrid = id >= 0 && id < strumLines.totalKeyCount && mousePos.y >= 0;
 
 					if (FlxG.mouse.justReleased) {
 						for (n in selection) n.selected = false;
@@ -877,9 +959,10 @@ class Charter extends UIState {
 
 						if (mouseOnGrid && mousePos.y > 0 && mousePos.y < (__endStep)*40) {
 							var note = new CharterNote();
+							var targetStrumline = strumLines.getStrumlineFromID(id);
 							note.updatePos(
-								FlxMath.bound(FlxG.keys.pressed.SHIFT ? ((mousePos.y-20) / 40) : quantStep(mousePos.y/40), 0, __endStep-1),
-								id % 4, 0, noteType, strumLines.members[Std.int(id/4)]
+								CoolUtil.bound(FlxG.keys.pressed.SHIFT ? ((mousePos.y-20) / 40) : quantStep(mousePos.y/40), 0, __endStep-1),
+								(id-targetStrumline.startingID) % targetStrumline.keyCount, 0, noteType, targetStrumline
 							);
 							notesGroup.add(note);
 							selection = [note];
@@ -908,7 +991,7 @@ class Charter extends UIState {
 			case SUSTAIN_DRAG:
 				selectionDragging = FlxG.mouse.pressed;
 				if (selectionDragging) {
-					currentCursor = BUTTON;
+					currentCursor = CLICK;
 					selection.loop(function (n:CharterNote) {
 						var change:Float = Math.max((mousePos.y-(FlxG.keys.pressed.SHIFT ? dragStartPos.y : quantStep(dragStartPos.y))) / 40, -n.susLength);
 						n.tempSusLength = change;
@@ -953,24 +1036,31 @@ class Charter extends UIState {
 						var mousePos = FlxG.mouse.getScreenPosition(uiCamera);
 						closeCurrentContextMenu();
 						openContextMenu(topMenu[1].childs, null, mousePos.x, mousePos.y);
-						mousePos.put();
 					}
 					gridActionType = NONE; deletedNotes = [];
 				}
 		}
-		addEventSpr.selectable = !selectionBox.visible;
+		localAddEventSpr.selectable = !selectionBox.visible;
+		globalAddEventSpr.selectable = !selectionBox.visible;
 
 		var inBoundsY:Bool = (mousePos.y > 0 && mousePos.y < (__endStep)*40);
 
 		// Event Spr
-		if (mousePos.x < 0 && mousePos.x > -addEventSpr.bWidth && gridActionType == NONE && inBoundsY) {
-			addEventSpr.incorporeal = false;
-			addEventSpr.sprAlpha = lerp(addEventSpr.sprAlpha, 0.75, 0.25);
-			var event = getHoveredEvent(mousePos.y);
-			if (event != null) addEventSpr.updateEdit(event);
-			else addEventSpr.updatePos(FlxG.keys.pressed.SHIFT ? ((mousePos.y) / 40) : quantStepRounded(mousePos.y/40));
-		} else  addEventSpr.sprAlpha = lerp(addEventSpr.sprAlpha, 0, 0.25);
+		for (addEventSpr in [localAddEventSpr, globalAddEventSpr]) {
+			addEventSpr.incorporeal = true;
+			if ((!addEventSpr.global ? mousePos.x < 0 : mousePos.x > strumLines.totalKeyCount * 40) && gridActionType == NONE && inBoundsY) {
+				var event = getHoveredEvent(mousePos.y, !addEventSpr.global ? leftEventsGroup : rightEventsGroup);
+				var hoveredWidth:Float = event != null ? 27 + 40 + event.bWidth : addEventSpr.bWidth;
 
+				if ((!addEventSpr.global ? mousePos.x > -hoveredWidth : mousePos.x < strumLines.totalKeyCount * 40 + hoveredWidth)) {
+					addEventSpr.incorporeal = false;
+
+					if (event != null) addEventSpr.updateEdit(event);
+					else addEventSpr.updatePos(FlxG.keys.pressed.SHIFT ? ((mousePos.y) / 40) : quantStepRounded(mousePos.y/40));
+				}
+			}
+			addEventSpr.sprAlpha = lerp(addEventSpr.sprAlpha, !addEventSpr.incorporeal ? 0.75 : 0, 0.25);
+		}
 		noteHoverer.showHoverer = Charter.instance.gridBackdropDummy.hovered;
 	}
 
@@ -987,9 +1077,9 @@ class Charter extends UIState {
 	public function ratioRound(val:Float, ratio:Float):Int
 		return Math.floor(val) + ((Math.abs(val % 1) > ratio ? 1 : 0) * (val > 0 ? 1 : -1));
 
-	public function getHoveredEvent(y:Float) {
+	public function getHoveredEvent(y:Float, group:CharterEventGroup) {
 		var eventHovered:CharterEvent = null;
-		eventsGroup.forEach(function(e) {
+		group.forEach(function(e) {
 			if (eventHovered != null)
 				return;
 
@@ -1010,7 +1100,7 @@ class Charter extends UIState {
 			note.kill();
 		} else if (selected is CharterEvent) {
 			var event:CharterEvent = cast selected;
-			eventsGroup.remove(event);
+			(event.global ? rightEventsGroup : leftEventsGroup).remove(event);
 			event.kill();
 		}
 
@@ -1030,7 +1120,7 @@ class Charter extends UIState {
 			notesGroup.add(n);
 		}, function (e:CharterEvent) {
 			e.revive();
-			eventsGroup.add(e);
+			(e.global ? rightEventsGroup : leftEventsGroup).add(e);
 			e.refreshEventIcons();
 		}, false);
 		notesGroup.sortNotes();
@@ -1047,7 +1137,7 @@ class Charter extends UIState {
 		if (selection.length <= 0) return [];
 
 		notesGroup.autoSort = false;
-		for (group in [notesGroup, eventsGroup]) {
+		for (group in [notesGroup, leftEventsGroup, rightEventsGroup]) {
 			var group:FlxTypedGroup<Dynamic> = cast group;
 			var member:Int = 0;
 			while(member < group.members.length) {
@@ -1067,10 +1157,31 @@ class Charter extends UIState {
 		return [];
 	}
 
+	public function updateEventsGroups(selection:Selection):CharterChange {
+		if (selection.length <= 0) return CEditEventGroups([]);
+		var eventsChanged:Array<CharterEvent> = [];
+
+		selection.loop(function (n:CharterNote) {}, function (e:CharterEvent) {
+			if (e.displayGlobal != e.global) {
+				(e.global ? rightEventsGroup : leftEventsGroup).remove(e);
+				(e.displayGlobal ? rightEventsGroup : leftEventsGroup).add(e);
+
+				e.global = e.displayGlobal;
+				eventsChanged.push(e);
+			}
+		}, true);
+
+		leftEventsGroup.sortEvents(); rightEventsGroup.sortEvents();
+		for (e in eventsChanged) e.update(0); // remove little stutter
+
+		return CEditEventGroups(eventsChanged);
+	}
+
 	// STRUMLINE DELETION/CREATION
 	public function createStrumline(strumLineID:Int, strL:ChartStrumLine, addToUndo:Bool = true, ?__createNotes:Bool = true) {
 		var cStr = new CharterStrumline(strL);
 		strumLines.insert(strumLineID, cStr);
+		strumLines.refreshStrumlineIDs();
 		strumLines.snapStrums();
 
 		if (__createNotes) {
@@ -1104,6 +1215,7 @@ class Charter extends UIState {
 		var strL = strumLines.members[strumLineID].strumLine;
 		strumLines.members[strumLineID].destroy();
 		strumLines.members.remove(strumLines.members[strumLineID]);
+		strumLines.refreshStrumlineIDs();
 		strumLines.snapStrums();
 
 		if (addToUndo) {
@@ -1143,6 +1255,7 @@ class Charter extends UIState {
 		FlxG.state.openSubState(new CharterStrumlineScreen(strID, strL, (_) -> {
 			strumLines.members[strID].strumLine = _;
 			strumLines.members[strID].updateInfo();
+			strumLines.refreshStrumlineIDs();
 
 			undos.addToUndo(CEditStrumLine(strID, oldData, _));
 
@@ -1165,7 +1278,14 @@ class Charter extends UIState {
 
 	var __crochet:Float;
 	var __firstFrame:Bool = true;
+	var __timer:Float = 0;
 	public override function update(elapsed:Float) {
+		if (Options.charterRainbowWaveforms) {
+			__timer += elapsed/8;
+			for (shader in waveformHandler.waveShaders)
+				shader.data.time.value = [__timer];
+		}
+
 		updateNoteLogic(elapsed);
 		updateAutoSaving(elapsed);
 
@@ -1175,7 +1295,7 @@ class Charter extends UIState {
 			gridBackdrops.conductorSprY = lerp(gridBackdrops.conductorSprY, curStepFloat * 40, __firstFrame ? 1 : 1/3);
 		}
 		charterCamera.scroll.set(
-			((((40*4) * gridBackdrops.strumlinesAmount) - FlxG.width) / 2),
+			lerp(charterCamera.scroll.x, (((40*strumLines.totalKeyCount) - FlxG.width) / 2) + sideScroll, __firstFrame ? 1 : 1/3),
 			gridBackdrops.conductorSprY - (FlxG.height * 0.5)
 		);
 
@@ -1188,7 +1308,6 @@ class Charter extends UIState {
 				var snapButton:UITopMenuButton = cast topMenuSpr.members[snapIndex];
 				var lastButtonX = playBackButton.x-10;
 
-				var buttonI:Int = 0;
 				for (button in quantButtons) {
 					button.visible = ((button.quant == quant) ||
 						(button.quant == quants[FlxMath.wrap(quants.indexOf(quant)-1, 0, quants.length-1)]) ||
@@ -1223,23 +1342,27 @@ class Charter extends UIState {
 		if (true) {
 			__crochet = ((60 / Conductor.bpm) * 1000);
 
-			if(FlxG.keys.justPressed.ANY && !strumLines.isDragging && this.currentFocus == null)
+			if(FlxG.keys.justPressed.ANY && !strumLines.isDragging && this.currentFocus == null && (this.subState == null || !(this.subState is CharterEventScreenNew)))
 				UIUtil.processShortcuts(topMenu);
 
-			if (FlxG.keys.pressed.CONTROL) {
-				if (FlxG.mouse.wheel != 0) {
-					zoom += 0.25 * FlxG.mouse.wheel;
-					__camZoom = Math.pow(2, zoom);
-				}
-			} else {
-				if (!FlxG.sound.music.playing && FlxG.mouse.wheel != 0) {
-					Conductor.songPosition -= (__crochet * FlxG.mouse.wheel) - Conductor.songOffset;
+			if (!topMenuSpr.anyMenuOpened) {
+				if (FlxG.mouse.wheel != 0 && shouldScroll) {
+					if (FlxG.keys.pressed.CONTROL) {
+						zoom += 0.25 * FlxG.mouse.wheel;
+						__camZoom = Math.pow(2, zoom);
+					} else if (FlxG.keys.pressed.SHIFT) {
+						sideScroll -= 40 * FlxG.mouse.wheel;
+					} else {
+						if (!FlxG.sound.music.playing) {
+							Conductor.songPosition -= (__crochet * FlxG.mouse.wheel) - Conductor.songOffset;
+						}
+					}
 				}
 			}
 		}
 
 		var songLength = FlxG.sound.music.getDefault(vocals).length;
-		Conductor.songPosition = FlxMath.bound(Conductor.songPosition + Conductor.songOffset, 0, songLength);
+		Conductor.songPosition = CoolUtil.bound(Conductor.songPosition + Conductor.songOffset, 0, songLength);
 
 		if (Conductor.songPosition >= songLength - Conductor.songOffset) {
 			FlxG.sound.music.pause();
@@ -1273,7 +1396,15 @@ class Charter extends UIState {
 	function updateDisplaySprites() {
 		gridBackdrops.strumlinesAmount = strumLines.members.length;
 
-		charterBG.scale.set(1 / charterCamera.zoom, 1 / charterCamera.zoom);
+		var scaleX:Float = (FlxG.width/charterBG.width);
+		var scaleY:Float = (FlxG.height/charterBG.height);
+
+		var bgScale:Float = scaleX > scaleY ? scaleX : scaleY;
+
+		charterBG.scale.set(
+			(1 / charterCamera.zoom) * bgScale,
+			(1 / charterCamera.zoom) * bgScale
+		);
 
 		strumlineInfoBG.scale.set(FlxG.width / charterCamera.zoom, 1);
 		strumlineInfoBG.updateHitbox();
@@ -1283,21 +1414,139 @@ class Charter extends UIState {
 		for(id=>str in strumLines.members)
 			if (str != null) str.y = strumlineInfoBG.y;
 
-		strumlineAddButton.x = 0;
+		//strumlineAddButton.x = 0;
 		strumlineAddButton.y = strumlineInfoBG.y;
 		strumlineLockButton.y = strumlineInfoBG.y;
 
 		strumlineLockButton.text.visible = strumlineLockButton.button.selectable = strumlineLockButton.button.visible = strumLines.members.length > 0;
 	}
 
+	public override function onResize(width:Int, height:Int) {
+		super.onResize(width, height);
+		if (!UIState.resolutionAware) return;
+
+		if (width < FlxG.initialWidth || height < FlxG.initialHeight) {
+			width = FlxG.initialWidth; height = FlxG.initialHeight;
+		}
+
+		scrollBar.x = width - 20;
+		scrollBar.scale.y = Std.int(height - scrollBar.y);
+		scrollBar.updateHitbox();
+
+		songPosInfo.x = width - 30 - 400;
+		playBackSlider.x = width - 160 - 26 - 20;
+
+		updateDisplaySprites();
+		charterBG.screenCenter();
+	}
+
 	var zoom(default, set):Float = 0;
 	var __camZoom(default, set):Float = 1;
 	function set_zoom(val:Float) {
-		return zoom = FlxMath.bound(val, -3.5, 1.75); // makes zooming not lag behind when continuing scrolling
+		return zoom = CoolUtil.bound(val, -3.5, 1.75); // makes zooming not lag behind when continuing scrolling
 	}
 	function set___camZoom(val:Float) {
-		return __camZoom = FlxMath.bound(val, 0.1, 3);
+		return __camZoom = CoolUtil.bound(val, 0.1, 3);
 	}
+
+	var sideScroll(default, set):Float = 0;
+	function set_sideScroll(val:Float) {
+		return sideScroll = FlxMath.bound(val, -(40*strumLines.totalKeyCount) / 2, (40*strumLines.totalKeyCount) / 2);
+	}
+
+	// SAVE FUNCS
+	#if REGION
+	public static function saveEverything(shouldBuild:Bool = true) {
+		if (shouldBuild && instance != null) instance.buildChart();
+		saveChart(false);
+		saveEvents(false);
+		saveMeta(false);
+	}
+
+	public static function saveChart(shouldBuild:Bool = true, withEvents:Bool = true) {
+		#if sys
+		saveTo('${Paths.getAssetsRoot()}/songs/${__song.toLowerCase()}', !withEvents, shouldBuild);
+		if (undos != null) undos.save();
+		#else
+		saveChartAs(shouldBuild, withEvents);
+		#end
+	}
+
+	public static function saveChartAs(shouldBuild:Bool = true, withEvents:Bool = true) {
+		saveAs(Chart.filterChartForSaving(PlayState.SONG, false, withEvents, false), null, Options.editorPrettyPrint ? Flags.JSON_PRETTY_PRINT : null, {
+			defaultSaveFile: '${__diff.toLowerCase()}.json'
+		}, null, shouldBuild);
+		if (undos != null) undos.save();
+	}
+
+	public static function saveEvents(shouldBuild:Bool = true) {
+		#if sys
+		if (shouldBuild && instance != null) instance.buildChart();
+		var data = {events: Chart.filterChartForSaving(PlayState.SONG, false, false, true).events};
+
+		var path = '${Paths.getAssetsRoot()}/songs/${__song.toLowerCase()}/events.json';
+		if (data.events != null && data.events.length > 0) CoolUtil.safeSaveFile(path, Json.stringify(data, null, Options.editorPrettyPrint ? Flags.JSON_PRETTY_PRINT : null));
+		else if (FileSystem.exists(path)) FileSystem.deleteFile(path);  // Instead of replacing with a useless empty file, deletes the file directly  - Nex
+		#else
+		saveEventsAs(shouldBuild);
+		#end
+	}
+
+	public static function saveEventsAs(shouldBuild:Bool = true) {
+		if (shouldBuild && instance != null) instance.buildChart();
+		var data = {events: Chart.filterChartForSaving(PlayState.SONG, false, false, true).events};
+
+		saveAs(data, null, Options.editorPrettyPrint ? Flags.JSON_PRETTY_PRINT : null, {
+			defaultSaveFile: 'events.json'
+		}, null, false);
+	}
+
+	public static function saveMeta(shouldBuild:Bool = true) {
+		#if sys
+		if (shouldBuild && instance != null) instance.buildChart();
+		CoolUtil.safeSaveFile(
+			'${Paths.getAssetsRoot()}/songs/${__song.toLowerCase()}/meta.json',
+			Json.stringify(PlayState.SONG.meta == null ? {} : Chart.filterChartForSaving(PlayState.SONG, true, false, false).meta, null, Flags.JSON_PRETTY_PRINT)
+		);
+		#else
+		saveMetaAs(shouldBuild);
+		#end
+	}
+
+	public static function saveMetaAs(shouldBuild:Bool = true) {
+		saveAs(PlayState.SONG.meta == null ? {} : Chart.filterChartForSaving(PlayState.SONG, true, false, false).meta, null, Flags.JSON_PRETTY_PRINT, { // always pretty print meta
+			defaultSaveFile: 'meta.json'
+		}, null, shouldBuild);
+	}
+
+	public static function saveLegacyChartAs(shouldBuild:Bool = true) {
+		saveAs(FNFLegacyParser.encode(PlayState.SONG), null, Options.editorPrettyPrint ? Flags.JSON_PRETTY_PRINT : null, {
+			defaultSaveFile: '${__song.toLowerCase().replace(" ", "-")}${__diff.toLowerCase() == Flags.DEFAULT_DIFFICULTY ? "" : '-${__diff.toLowerCase()}'}.json',
+		}, null, shouldBuild);
+	}
+
+	public static function savePsychChartAs(shouldBuild:Bool = true) {
+		saveAs(PsychParser.encode(PlayState.SONG), null, Options.editorPrettyPrint ? Flags.JSON_PRETTY_PRINT : null, {
+			defaultSaveFile: '${__song.toLowerCase().replace(" ", "-")}${__diff.toLowerCase() == Flags.DEFAULT_DIFFICULTY ? "" : '-${__diff.toLowerCase()}'}.json',
+		}, null, shouldBuild);
+	}
+
+	public static function saveAs(data:Dynamic, ?replacer:(key:Dynamic, value:Dynamic) -> Dynamic, ?space:String, ?options:SaveSubstate.SaveSubstateData, ?saveOptions:Map<String, Bool>, shouldBuild:Bool = true) {
+		if (shouldBuild && instance != null) instance.buildChart();
+		var cur = FlxG.state;
+		while(true) {
+			if (instance != null || cur.subState == null) return cur.openSubState(new SaveSubstate(Json.stringify(data, replacer, space), options, saveOptions));
+			else cur = cur.subState;
+		}
+	}
+
+	#if sys
+	public static function saveTo(path:String, separateEvents:Bool = false, shouldBuild:Bool = true) {
+		if (shouldBuild && instance != null) instance.buildChart();
+		Chart.save(path, PlayState.SONG, __diff.toLowerCase(), {saveMetaInChart: false, saveLocalEvents: !separateEvents, prettyPrint: Options.editorPrettyPrint});
+	}
+	#end
+	#end
 
 	// TOP MENU OPTIONS
 	#if REGION
@@ -1306,92 +1555,17 @@ class Charter extends UIState {
 		else {undos = null; FlxG.switchState(new CharterSelection()); Charter.instance.__clearStatics();}
 	}
 
-	function _file_save(_) {
-		#if sys
-		saveTo('${Paths.getAssetsRoot()}/songs/${__song.toLowerCase()}');
-		undos.save();
-		return;
-		#end
-		_file_saveas(_);
-	}
-
-	function _file_saveas(_) {
-		openSubState(new SaveSubstate(Json.stringify(Chart.filterChartForSaving(PlayState.SONG, false), null, Options.editorPrettyPrint ? Flags.JSON_PRETTY_PRINT : null), {
-			defaultSaveFile: '${__diff.toLowerCase()}.json'
-		}));
-		undos.save();
-	}
-
-	function _file_save_no_events(_) {
-		#if sys
-		saveTo('${Paths.getAssetsRoot()}/songs/${__song.toLowerCase()}', true);
-		undos.save();
-		return;
-		#end
-		_file_saveas(_);
-	}
-
-	function _file_saveas_no_events(_) {
-		openSubState(new SaveSubstate(Json.stringify(Chart.filterChartForSaving(PlayState.SONG, false, false), null, Options.editorPrettyPrint ? Flags.JSON_PRETTY_PRINT : null), {
-			defaultSaveFile: '${__diff.toLowerCase()}.json'
-		}));
-		undos.save();
-	}
-
-	function _file_meta_save(_) {
-		#if sys
-		CoolUtil.safeSaveFile(
-			'${Paths.getAssetsRoot()}/songs/${__song.toLowerCase()}/meta.json',
-			PlayState.SONG.meta == null ? null : Chart.makeMetaSaveable(PlayState.SONG.meta)
-		);
-		#else
-		_file_meta_saveas(_);
-		#end
-	}
-
-	function _file_meta_saveas(_) {
-		openSubState(new SaveSubstate(PlayState.SONG.meta == null ? null : Chart.makeMetaSaveable(PlayState.SONG.meta), { // always pretty print meta
-			defaultSaveFile: 'meta.json'
-		}));
-	}
-
-	function _file_saveas_fnflegacy(_) {
-		openSubState(new SaveSubstate(Json.stringify(FNFLegacyParser.encode(PlayState.SONG), null, Options.editorPrettyPrint ? Flags.JSON_PRETTY_PRINT : null), {
-			defaultSaveFile: '${__song.toLowerCase().replace(" ", "-")}${__diff.toLowerCase() == Flags.DEFAULT_DIFFICULTY ? "" : '-${__diff.toLowerCase()}'}.json',
-		}));
-	}
-
-	function _file_saveas_psych(_) {
-		openSubState(new SaveSubstate(Json.stringify(PsychParser.encode(PlayState.SONG), null, Options.editorPrettyPrint ? Flags.JSON_PRETTY_PRINT : null), {
-			defaultSaveFile: '${__song.toLowerCase().replace(" ", "-")}${__diff.toLowerCase() == Flags.DEFAULT_DIFFICULTY ? "" : '-${__diff.toLowerCase()}'}.json',
-		}));
-	}
-
-	function _file_events_save(_) {
-		#if sys
-		CoolUtil.safeSaveFile(
-			'${Paths.getAssetsRoot()}/songs/${__song.toLowerCase()}/events.json',
-			Json.stringify({events: PlayState.SONG.events == null ? [] : PlayState.SONG.events}, null, Options.editorPrettyPrint ? Flags.JSON_PRETTY_PRINT : null)
-		);
-		#else
-		_file_events_saveas(_);
-		#end
-	}
-
-	function _file_events_saveas(_) {
-		#if sys
-		openSubState(new SaveSubstate(Json.stringify({events: PlayState.SONG.events == null ? [] : PlayState.SONG.events}, null, Options.editorPrettyPrint ? Flags.JSON_PRETTY_PRINT : null), {
-			defaultSaveFile: 'events.json'
-		}));
-		#end
-	}
-
-	#if sys
-	function saveTo(path:String, separateEvents:Bool = false) {
-		buildChart();
-		Chart.save(path, PlayState.SONG, __diff.toLowerCase(), {saveMetaInChart: false, saveEventsInChart: !separateEvents, prettyPrint: Options.editorPrettyPrint});
-	}
-	#end
+	function _file_save_all(_) saveEverything();
+	function _file_save(_) saveChart();
+	function _file_saveas(_) saveChartAs();
+	function _file_events_save(_) saveEvents();
+	function _file_events_saveas(_) saveEventsAs();
+	function _file_save_no_events(_) saveChart(true, false);
+	function _file_saveas_no_events(_) saveChartAs(true, false);
+	function _file_meta_save(_) saveMeta();
+	function _file_meta_saveas(_) saveMetaAs();
+	function _file_saveas_fnflegacy(_) saveLegacyChartAs();
+	function _file_saveas_psych(_) savePsychChartAs();
 
 	function _edit_copy(_) {
 		if(selection.length == 0) return;
@@ -1407,7 +1581,7 @@ class Charter extends UIState {
 				CNote(note.step - minStep, note.id, note.strumLineID, note.susLength, note.type);
 			} else if (s is CharterEvent) {
 				var event:CharterEvent = cast s;
-				CEvent(event.step - minStep, [for (event in event.events) Reflect.copy(event)]);
+				CEvent(event.step - minStep, [for (event in event.events) Reflect.copy(event)], event.global);
 			}
 		];
 	}
@@ -1420,13 +1594,13 @@ class Charter extends UIState {
 			switch(c) {
 				case CNote(step, id, strumLineID, susLength, type):
 					var note = new CharterNote();
-					note.updatePos(minStep + step, id, susLength, type, strumLines.members[Std.int(FlxMath.bound(strumLineID, 0, strumLines.length-1))]);
+					note.updatePos(minStep + step, id, susLength, type, strumLines.members[CoolUtil.boundInt(strumLineID, 0, strumLines.length-1)]);
 					notesGroup.add(note);
 					sObjects.push(note);
-				case CEvent(step, events):
-					var event = new CharterEvent(minStep + step, events);
+				case CEvent(step, events, global):
+					var event = new CharterEvent(minStep + step, events, global);
 					event.refreshEventIcons();
-					eventsGroup.add(event);
+					(global ? rightEventsGroup : leftEventsGroup).add(event);
 					sObjects.push(event);
 			}
 		}
@@ -1453,11 +1627,7 @@ class Charter extends UIState {
 		selection = deleteSelection(selection, true);
 	}
 
-	function _edit_undo(_) {
-		if (strumLines.isDragging || selectionDragging || (subState != null && !(subState is UIContextMenu))) return;
-
-		selection = [];
-		var undo = undos.undo();
+	function _undo(undo:CharterChange) {
 		switch(undo) {
 			case null: // do nothing
 			case CDeleteStrumLine(strumLineID, strumLine):
@@ -1471,6 +1641,7 @@ class Charter extends UIState {
 			case CEditStrumLine(strumLineID, oldStrumLine, newStrumLine):
 				strumLines.members[strumLineID].strumLine = oldStrumLine;
 				strumLines.members[strumLineID].updateInfo();
+				strumLines.refreshStrumlineIDs();
 			case CCreateSelection(selection):
 				deleteSelection(selection, false);
 			case CDeleteSelection(selection):
@@ -1480,7 +1651,7 @@ class Charter extends UIState {
 					if (s.selectable.draggable) s.selectable.handleDrag(s.change * -1);
 
 				selection = [for (s in selectionDrags) s.selectable];
-				Charter.instance.updateBPMEvents();
+				checkSelectionForBPMUpdates();
 			case CEditSustains(changes):
 				for(n in changes)
 					n.note.updatePos(n.note.step, n.note.id, n.before, n.note.type);
@@ -1489,6 +1660,10 @@ class Charter extends UIState {
 				event.refreshEventIcons();
 
 				Charter.instance.updateBPMEvents();
+			case CEditEventGroups(events):
+				for (event in events) event.displayGlobal = !event.global;
+				updateEventsGroups(cast events);
+
 			case CEditChartData(oldData, newData):
 				PlayState.SONG.stage = oldData.stage;
 				PlayState.SONG.scrollSpeed = oldData.speed;
@@ -1497,14 +1672,19 @@ class Charter extends UIState {
 				changeNoteType(null, false);
 			case CEditSpecNotesType(notes, oldTypes, newTypes):
 				for(i=>note in notes) note.updatePos(note.step, note.id, note.susLength, oldTypes[i]);
+			case CChangeBundle(changes):
+				for (change in changes) _undo(change);
 		}
 	}
 
-	function _edit_redo(_) {
+	function _edit_undo(_) {
 		if (strumLines.isDragging || selectionDragging || (subState != null && !(subState is UIContextMenu))) return;
 
 		selection = [];
-		var redo = undos.redo();
+		_undo(undos.undo());
+	}
+
+	function _redo(redo:CharterChange) {
 		switch(redo) {
 			case null: // do nothing
 			case CDeleteStrumLine(strumLineID, strumLine):
@@ -1518,6 +1698,7 @@ class Charter extends UIState {
 			case CEditStrumLine(strumLineID, oldStrumLine, newStrumLine):
 				strumLines.members[strumLineID].strumLine = newStrumLine;
 				strumLines.members[strumLineID].updateInfo();
+				strumLines.refreshStrumlineIDs();
 			case CCreateSelection(selection):
 				createSelection(selection, false);
 			case CDeleteSelection(selection):
@@ -1526,7 +1707,7 @@ class Charter extends UIState {
 				for (s in selectionDrags)
 					if (s.selectable.draggable) s.selectable.handleDrag(s.change);
 				//this.selection = selection;
-				Charter.instance.updateBPMEvents();
+				checkSelectionForBPMUpdates();
 			case CEditSustains(changes):
 				for(n in changes)
 					n.note.updatePos(n.note.step, n.note.id, n.after, n.note.type);
@@ -1535,6 +1716,10 @@ class Charter extends UIState {
 				event.refreshEventIcons();
 
 				Charter.instance.updateBPMEvents();
+			case CEditEventGroups(events):
+				for (event in events) event.displayGlobal = !event.global;
+				updateEventsGroups(cast events);
+
 			case CEditChartData(oldData, newData):
 				PlayState.SONG.stage = newData.stage;
 				PlayState.SONG.scrollSpeed = newData.speed;
@@ -1543,7 +1728,16 @@ class Charter extends UIState {
 				changeNoteType(null, false);
 			case CEditSpecNotesType(notes, oldTypes, newTypes):
 				for(i=>note in notes) note.updatePos(note.step, note.id, note.susLength, newTypes[i]);
+			case CChangeBundle(changes):
+				for (change in changes) _redo(change);
 		}
+	}
+
+	function _edit_redo(_) {
+		if (strumLines.isDragging || selectionDragging || (subState != null && !(subState is UIContextMenu))) return;
+
+		selection = [];
+		_redo(undos.redo());
 	}
 
 	inline function _chart_playtest(_)
@@ -1641,9 +1835,25 @@ class Charter extends UIState {
 	function _view_showeventBeatSeparator(t) {
 		t.icon = (Options.charterShowBeats = !Options.charterShowBeats) ? 1 : 0;
 	}
+	function _view_switchWaveformRainbow(t) {
+		t.icon = (Options.charterRainbowWaveforms = !Options.charterRainbowWaveforms) ? 1 : 0;
+
+		waveformHandler.clearWaveforms();
+		updateWaveforms();
+	}
 	function _view_switchWaveformDetail(t) {
 		t.icon = (Options.charterLowDetailWaveforms = !Options.charterLowDetailWaveforms) ? 1 : 0;
 		for (shader in waveformHandler.waveShaders) shader.data.lowDetail.value = [Options.charterLowDetailWaveforms];
+	}
+
+	function _view_scrollleft(_) {
+		sideScroll -= 40;
+	}
+	function _view_scrollright(_) {
+		sideScroll += 40;
+	}
+	function _view_scrollreset(_) {
+		sideScroll = 0;
 	}
 
 	inline function _snap_increasesnap(_) changequant(1);
@@ -1718,7 +1928,7 @@ class Charter extends UIState {
 
 	inline public function changeNoteType(?newID:Int, checkSelection:Bool = true) {
 		if(newID != null) noteType = newID;
-		noteType = Std.int(FlxMath.bound(noteType, 0, noteTypes.length));
+		noteType = CoolUtil.boundInt(noteType, 0, noteTypes.length);
 		buildNoteTypesUI();
 
 		var changedNotes:{notes:Array<CharterNote>, oldTypes:Array<Int>, newTypes:Array<Int>} = {notes:[], oldTypes:[], newTypes:[]};
@@ -1815,6 +2025,7 @@ class Charter extends UIState {
 	public function buildChart() {
 		PlayState.SONG.strumLines = [];
 		PlayState.SONG.noteTypes = this.noteTypes;
+		PlayState.SONG.chartVersion = Chart.version;
 		for(s in strumLines) {
 			s.strumLine.notes = [];
 			PlayState.SONG.strumLines.push(s.strumLine);
@@ -1829,21 +2040,22 @@ class Charter extends UIState {
 
 	public function buildEvents() {
 		PlayState.SONG.events = [];
-		eventsGroup.sortEvents();
-		for(e in eventsGroup.members) {
-			for(event in e.events) {
-				event.time = Conductor.getTimeForStep(e.step);
-				PlayState.SONG.events.push(event);
-			}
+
+		var events:Array<CharterEvent> = leftEventsGroup.members.concat(rightEventsGroup.members);
+		events.sort(rightEventsGroup.sortEventsFilter.bind(FlxSort.ASCENDING));
+		for (e in events) for (event in e.events) {
+			event.time = Conductor.getTimeForStep(e.step);
+			PlayState.SONG.events.push(event);
 		}
 	}
 
 	public function updateBPMEvents() {
-		eventsGroup.sortEvents();
+		leftEventsGroup.sortEvents();
+		rightEventsGroup.sortEvents();
 		Conductor.mapCharterBPMChanges(PlayState.SONG);
 		buildEvents();
 
-		for(e in eventsGroup.members) {
+		for(e in leftEventsGroup.members) {
 			for(event in e.events) {
 				if (event.name == "BPM Change" || event.name == "Time Signature Change" || event.name == "Continuous BPM Change") {
 					e.refreshEventIcons();
@@ -1851,14 +2063,23 @@ class Charter extends UIState {
 				}
 			}
 		}
-		
+
+		for(e in rightEventsGroup.members) {
+			for(event in e.events) {
+				if (event.name == "BPM Change" || event.name == "Time Signature Change" || event.name == "Continuous BPM Change") {
+					e.refreshEventIcons();
+					break;
+				}
+			}
+		}
+
 		refreshBPMSensitive();
 	}
 
 	public inline function checkSelectionForBPMUpdates() {
 		for (s in selection)
 			if (s is CharterEvent) {
-				Charter.instance.updateBPMEvents();
+				updateBPMEvents();
 				break;
 			}
 	}
@@ -1877,8 +2098,10 @@ class Charter extends UIState {
 	@:noCompletion public function __relinkSingleSelection(selectable:ICharterSelectable):ICharterSelectable {
 		if (selectable is CharterNote)
 			return selectable.ID == -1 ? cast(selectable, CharterNote) : notesGroup.members[selectable.ID];
-		else if (selectable is CharterEvent)
-			return selectable.ID == -1 ? cast(selectable, CharterEvent) : eventsGroup.members[selectable.ID];
+		else if (selectable is CharterEvent) {
+			var event:CharterEvent = cast(selectable, CharterEvent);
+			return selectable.ID == -1 ? event : (event.global ? rightEventsGroup : leftEventsGroup).members[selectable.ID];
+		}
 		return null;
 	}
 
@@ -1987,14 +2210,17 @@ enum CharterChange {
 	CSelectionDrag(selectionDrags:Array<SelectionDragChange>);
 	CEditSustains(notes:Array<NoteSustainChange>);
 	CEditEvent(event:CharterEvent, oldEvents:Array<ChartEvent>, newEvents:Array<ChartEvent>);
+	CEditEventGroups(events:Array<CharterEvent>);
 	CEditChartData(oldData:{stage:String, speed:Float}, newData:{stage:String, speed:Float});
 	CEditNoteTypes(oldArray:Array<String>, newArray:Array<String>);
 	CEditSpecNotesType(notes:Array<CharterNote>, oldNoteTypes:Array<Int>, newNoteTypes:Array<Int>);
+
+	CChangeBundle(changes:Array<CharterChange>);
 }
 
 enum CharterCopyboardObject {
 	CNote(step:Float, id:Int, strumLineID:Int, susLength:Float, type:Int);
-	CEvent(step:Float, events:Array<ChartEvent>);
+	CEvent(step:Float, events:Array<ChartEvent>, global:Bool);
 }
 
 typedef NoteSustainChange = {
@@ -2032,6 +2258,7 @@ interface ICharterSelectable {
 	public var selected:Bool;
 	public var hovered:Bool;
 	public var draggable:Bool;
+	public var snappedToGrid:Bool;
 
 	public function handleSelection(selectionBox:UISliceSprite):Bool;
 	public function handleDrag(change:FlxPoint):Void;

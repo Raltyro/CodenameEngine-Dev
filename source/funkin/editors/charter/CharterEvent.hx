@@ -1,18 +1,20 @@
 package funkin.editors.charter;
 
-import funkin.backend.shaders.CustomShader;
-import funkin.backend.system.Conductor;
+import openfl.display.BitmapData;
+import openfl.geom.ColorTransform;
 import flixel.group.FlxSpriteGroup;
 import flixel.math.FlxPoint;
 import flixel.system.FlxAssets.FlxGraphicAsset;
 import funkin.backend.chart.ChartData.ChartEvent;
 import funkin.backend.scripting.DummyScript;
 import funkin.backend.scripting.Script;
+import funkin.backend.system.Conductor;
 import funkin.editors.charter.Charter.ICharterSelectable;
 import funkin.editors.charter.CharterBackdropGroup.EventBackdrop;
 import funkin.game.Character;
 import funkin.game.HealthIcon;
-import openfl.display.BitmapData;
+
+using flixel.util.FlxColorTransformUtil;
 
 class CharterEvent extends UISliceSprite implements ICharterSelectable {
 	public var events:Array<ChartEvent>;
@@ -25,30 +27,58 @@ class CharterEvent extends UISliceSprite implements ICharterSelectable {
 	public var eventsBackdrop:EventBackdrop;
 	public var snappedToGrid:Bool = true;
 
-	public function new(step:Float, ?events:Array<ChartEvent>) {
+	public var displayGlobal:Bool = false;
+	public var global(default, set):Bool = false;
+	private function set_global(val:Bool) {
+		for (event in events) event.global = val;
+		return global = val;
+	}
+
+	public function new(step:Float, ?events:Array<ChartEvent>, ?global:Bool) {
 		super(-100, (step * 40) - 17, 100, 34, 'editors/charter/event-spr');
 		this.step = step;
 		this.events = events.getDefault([]);
 
-		cursor = BUTTON;
+		this.global = displayGlobal = (global == null ? events[0] != null && events[0].global == true : global);
+		this.color = displayGlobal ? 0xffc8bd23 : 0xFFFFFFFF;
+
+		cursor = CLICK;
 	}
 
 	public override function update(elapsed:Float) {
 		super.update(elapsed);
 
-		if (snappedToGrid && eventsBackdrop != null)
-			x = eventsBackdrop.x + eventsBackdrop.width - (bWidth = 37 + (icons.length * 22));
+		if (snappedToGrid && eventsBackdrop != null) {
+			bWidth = 37 + (icons.length * 22);
+			x = eventsBackdrop.x + (global ? 0 : eventsBackdrop.width - bWidth);
+		}
 
 		for(k=>i in icons) {
 			i.follow(this, (k * 22) + 30 - (i.width / 2), (bHeight - i.height) / 2);
 		}
 
-		colorTransform.redMultiplier = colorTransform.greenMultiplier = colorTransform.blueMultiplier = selected ? 0.75 : 1;
-		colorTransform.redOffset = colorTransform.greenOffset = selected ? 96 : 0;
-		colorTransform.blueOffset = selected ? 168 : 0;
+		@:bypassAccessor color = CoolUtil.lerpColor(this.color, displayGlobal ? 0xffc8bd23 : 0xFFFFFFFF, 1/3);
+		colorTransform.setMultipliers(color.redFloat, color.greenFloat, color.blueFloat, alpha);
+		colorTransform.setOffsets(0, 0, 0, 0);
+		selectedColorTransform(colorTransform);
+		useColorTransform = true;
 
-		for (sprite in icons)
-			sprite.colorTransform = colorTransform;
+		for (sprite in icons) @:privateAccess {
+			sprite.colorTransform.__identity();
+			selectedColorTransform(sprite.colorTransform);
+		}
+
+		flipX = displayGlobal;
+	}
+
+	@:noCompletion private inline function selectedColorTransform(transform:ColorTransform) {
+		transform.redMultiplier *= selected ? 0.75 : 1;
+		transform.greenMultiplier *= selected ? 0.75 : 1;
+		transform.blueMultiplier *= selected ? 0.75 : 1;
+
+		transform.redOffset += selected ? 96 : 0;
+		transform.greenOffset += selected ? 96 : 0;
+		transform.blueOffset += selected ? 168 : 0;
 	}
 
 	/**
@@ -128,7 +158,7 @@ class CharterEvent extends UISliceSprite implements ICharterSelectable {
 		path = path.trim();
 
 		var graphic:FlxGraphicAsset = try {
-			isBase64 ? openfl.display.BitmapData.fromBase64(path, 'UTF8') : path;
+			isBase64 ? BitmapData.fromBase64(path, 'UTF8') : path;
 		} catch(e:Dynamic) {
 			Logs.trace('Failed to load event icon: ${e.toString()}', ERROR);
 			isBase64 = false;
@@ -153,8 +183,7 @@ class CharterEvent extends UISliceSprite implements ICharterSelectable {
 	**/
 	public static function getEventComponent(type:String, x:Float = 0.0, y:Float = 0.0) {
 		var componentPath = Paths.image("editors/charter/event-icons/components/" + type);
-		if(Assets.exists(componentPath))
-			return new FlxSprite(x, y, componentPath);
+		if (Assets.exists(componentPath)) return new FlxSprite(x, y, componentPath);
 
 		Logs.trace('Could not find component $type', WARNING);
 		return null;
@@ -326,7 +355,7 @@ class CharterEvent extends UISliceSprite implements ICharterSelectable {
 	}
 
 	public function handleDrag(change:FlxPoint) {
-		var newStep:Float = step = FlxMath.bound(step + change.x, 0, Charter.instance.__endStep-1);
+		var newStep:Float = step = CoolUtil.bound(step + change.x, 0, Charter.instance.__endStep-1);
 		y = ((newStep) * 40) - 17;
 	}
 
@@ -345,18 +374,20 @@ class CharterEvent extends UISliceSprite implements ICharterSelectable {
 
 		draggable = true;
 
-		x = (snappedToGrid && eventsBackdrop != null ? eventsBackdrop.x : 0) - (bWidth = 37 + (icons.length * 22));
+		bWidth = 37 + (icons.length * 22);
+		x = (snappedToGrid && eventsBackdrop != null && global ? eventsBackdrop.x - bWidth : (global ? 0 : -bWidth));
 	}
 }
 
 class EventIconGroup extends FlxSpriteGroup {
 	public var forceWidth:Float = 16;
 	public var forceHeight:Float = 16;
-	public var dontTransformChildren:Bool = true;
+	public var dontTransformChildren:Bool = false;
 	public var copyColorTransformToChildren:Bool = true;
 
 	public function new() {
 		super();
+		colorTransform = new ColorTransform();
 		scrollFactor.set(1, 1);
 	}
 
@@ -400,7 +431,7 @@ class EventIconGroup extends FlxSpriteGroup {
 		if (copyColorTransformToChildren && colorTransform != null) for (child in members) child.colorTransform.__copyFrom(colorTransform);
 		super.draw();
 	}
-	
+
 	override function update(elapsed:Float) {
 		super.update(elapsed);
 	}

@@ -248,10 +248,7 @@ final class Conductor
 
 		// fix the sort first...
 		var events:Array<ChartEvent> = [for (e in song.events) if (e.params != null && validEventNames.contains(e.name)) e];
-		events.sort((a, b) -> {
-			if (MathUtil.equal(a.time, b.time)) return a.name == "Continuous BPM Change" ? 1 : -1;
-			return Std.int(a.time - b.time);
-		});
+		events.sort((a, b) -> MathUtil.equal(a.time, b.time) ? (a.name == "Time Signature Change" ? -1 : 1) : Std.int(a.time - b.time));
 
 		for (e in events) curChange = mapEvent(e, curChange);
 	}
@@ -305,22 +302,45 @@ final class Conductor
 			beatsPerMeasure: song.meta.beatsPerMeasure.getDefault(4),
 			stepsPerBeat: CoolUtil.floorInt(song.meta.stepsPerBeat.getDefault(4))
 		};
-		curChangeIndex = 0;
 		bpmChangeMap = [curChange];
 		invalidEvents = [];
 
-		for (event in Charter.instance.eventsGroup.members) {
-			event.events.sort((a, b) -> {
-				if (MathUtil.equal(a.time, b.time)) return a.name == "Continuous BPM Change" ? 1 : -1;
-				return 0;
-			});
+		var grpEvents = Charter.instance.leftEventsGroup.members.concat(Charter.instance.rightEventsGroup.members);
+		var n = grpEvents.length;
 
-			var eventTime = Conductor.getStepsInTime(event.step);
-			for (e in event.events) {
-				if (!Math.isNaN(eventTime)) e.time = eventTime;
-				if (validEventNames.contains(e.name)) curChange = mapEvent(e, curChange);
+		if (n != 0) {
+			grpEvents.sort((a, b) -> a.step < b.step ? -1 : 1);
+			curChangeIndex = 0;
+
+			var i = 0, i2 = 0, j = 0, x = 0, events = [], ce, e;
+			while (i < n) {
+				x += (ce = grpEvents[i]).events.length;
+				if (++i < n && grpEvents[i].step == ce.step) continue;
+
+				var eventTime = Conductor.getStepsInTime(ce.step, curChangeIndex);
+				if (Math.isNaN(eventTime)) eventTime = 0;
+
+				events.resize(x);
+				while (i2 < i) {
+					x = 0;
+					ce = grpEvents[i2++];
+					while (x < ce.events.length) if (validEventNames.contains((e = ce.events[x++]).name)) {
+						events[j++] = e;
+						if (eventTime != 0) e.time = eventTime;
+					}
+				}
+				events.resize(x = j);
+				events.sort((a, b) -> MathUtil.equal(a.time, b.time) ? (a.name == "Time Signature Change" ? -1 : 1) : 0);
+
+				j = 0;
+				while (j < x) curChange = mapEvent(events[j++], curChange);
+				curChangeIndex = bpmChangeMap.length - 1;
+
+				x = j = 0;
 			}
 		}
+
+		curChangeIndex = 0;
 	}
 
 	private static var elapsed:Float;
